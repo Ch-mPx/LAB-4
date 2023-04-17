@@ -49,6 +49,8 @@ arm_pid_instance_f32 PID = {0};
 uint32_t position = 0;
 uint32_t setposition = 0;
 float duty = 0 ;
+uint32_t data[2] = {0};
+uint32_t rawdata = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -58,7 +60,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
-
+void QEIEncoderPositionVelocity_Update() ;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -115,15 +117,34 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  static uint32_t timestamp = 0;
 	  if(HAL_GetTick()>timestamp){
 	  		  timestamp = HAL_GetTick()+10 ;
-	  		  duty = arm_pid_f32(&PID, setposition-position);
-	  		  __HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,duty);
-	  		  if (abs(position-setposition) < 0.1)
-	  		  {
-	  			  duty = 0 ;
+	  		  QEIEncoderPositionVelocity_Update();
 
+	  		  if(setposition-position > 0)
+	  		  {
+	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, 0);
+	  			if (position-setposition < 0.1)
+	  			{
+	  				duty = 0 ;
+	  			}
+	  			duty = arm_pid_f32(&PID, setposition-position);
+	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,duty);
 	  		  }
+	  		  else if (setposition-position < 0)
+	  		  {
+	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
+	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, 1);
+	  			if (position-setposition < 0.1)
+	  			{
+	  				duty = 0 ;
+	  			}
+	  			duty = arm_pid_f32(&PID, setposition-position);
+	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,duty);
+	  		  }
+
 	  	  }
   }
   /* USER CODE END 3 */
@@ -348,7 +369,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1|LD2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -356,12 +377,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA1 LD2_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 
@@ -378,7 +405,7 @@ void QEIEncoderPositionVelocity_Update(){
 	if(diffposition < -1500) diffposition += 3072 ;
 
 	data[1] = data[0];
-	position += diffposition;
+	rawdata += diffposition;
 }
 /* USER CODE END 4 */
 
