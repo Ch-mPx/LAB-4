@@ -40,17 +40,20 @@
 
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 arm_pid_instance_f32 PID = {0};
-uint32_t position = 0;
+float position = 0;
 uint32_t setposition = 0;
 float duty = 0 ;
+float duty2 = 0 ;
 uint32_t data[2] = {0};
-uint32_t rawdata = 0;
+int rawdata = 0;
+float diff = 0 ;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,6 +62,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 void QEIEncoderPositionVelocity_Update() ;
 /* USER CODE END PFP */
@@ -99,15 +103,17 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_TIM1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  	PID.Kp = 0.1;
-    PID.Ki = 0.01 ;
+  	PID.Kp = 0.2;
+    PID.Ki = 0.1 ;
     PID.Kd = 0.1;
-    arm_pid_init_f32(&PID, 0);
+    arm_pid_init_f32(&PID, 1);
 
     HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_1|TIM_CHANNEL_2);
     HAL_TIM_Base_Start(&htim1);
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -119,30 +125,49 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	  static uint32_t timestamp = 0;
 	  if(HAL_GetTick()>timestamp){
-	  		  timestamp = HAL_GetTick()+10 ;
-	  		  QEIEncoderPositionVelocity_Update();
-
-	  		  if(setposition-position > 0)
+	  		  timestamp = HAL_GetTick()+1 ;        // run 1000 Hz
+	  		  QEIEncoderPositionVelocity_Update(); // read QEI
+	  		  position = (rawdata/3072.0)*360.0 ;     // find degree
+	  		  diff = setposition - position ;    // error
+	  		  if(diff > 0)
 	  		  {
-	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, 0);
-	  			if (position-setposition < 0.1)
+	  			if (diff <= 0.6)
 	  			{
-	  				duty = 0 ;
+	  				duty = 0 ;// break
+	  				duty2 = 0;
 	  			}
-	  			duty = arm_pid_f32(&PID, setposition-position);
+	  			else {
+	  				duty = arm_pid_f32(&PID, diff);  // set duty
+	  				if(duty > 100 )
+	  				{
+	  					duty = 100 ;		// limit duty
+	  				}
+	  				else if(duty < 0){
+	  					duty = 0 ;			// limit duty
+	  				}
+	  			}
 	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,duty);
+	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,duty2);
 	  		  }
-	  		  else if (setposition-position < 0)
+	  		  else if(diff < 0)
 	  		  {
-	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
-	  			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, 1);
-	  			if (position-setposition < 0.1)
+	  			if (diff*-1 <= 0.6)
 	  			{
-	  				duty = 0 ;
+	  				duty = 0 ;   // break
+	  				duty2 = 0 ;
 	  			}
-	  			duty = arm_pid_f32(&PID, setposition-position);
+	  			else{
+	  				duty2 = arm_pid_f32(&PID, diff*-1); // set duty and change error to positive
+	  				if(duty2 > 100 )
+	  				{
+	  					duty2 = 100 ;			// limit duty
+	  				}
+	  				else if(duty2 < 0){
+	  					duty2 = 0 ;            // limit duty
+	  				}
+	  			}
 	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_1,duty);
+	  			__HAL_TIM_SET_COMPARE(&htim1,TIM_CHANNEL_2,duty2);
 	  		  }
 
 	  	  }
@@ -253,6 +278,10 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
@@ -268,6 +297,51 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -292,7 +366,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = 3071;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
